@@ -420,6 +420,139 @@ class BlitRangeEncoder : public RangeEncoder {
     IndexType (BlitRangeEncoder::*decode_blit_function_)(const IndexType& encode, BlitSubresource& blit_decode) const;
 };
 
+class BlitSubresourceGenerator : public BlitSubresource {
+  public:
+    BlitSubresourceGenerator() : BlitSubresource(), encoder_(nullptr), limits_(), limits_offset_(), limits_extent_(){};
+    BlitSubresourceGenerator(const BlitRangeEncoder& encoder, const VkImageSubresourceRange& range, const VkOffset3D& offset,
+                             const VkExtent3D& extent)
+        : BlitSubresource(encoder.BeginBlitSubresource(range, offset)),
+          encoder_(&encoder),
+          limits_(range),
+          limits_offset_({offset.x, offset.y}),
+          limits_extent_({extent.width, extent.height}) {
+        if (offset.z > 1 || extent.depth > 1) {
+            limits_.baseArrayLayer = offset.z;
+            limits_.layerCount = extent.depth;
+        }
+    }
+
+    const VkImageSubresourceRange& Limits() const { return limits_; }
+    const VkOffset2D& Limits_Offset() const { return limits_offset_; }
+    const VkExtent2D& Limits_Extent() const { return limits_extent_; }
+
+    // Seek functions are used by generators to force synchronization, as callers may have altered the position
+    // to iterater between calls to the generator increment or Seek functions
+    void SeekOffsetY(int32_t offset_y_index) {
+        arrayLayer = limits_.baseArrayLayer;
+        mipLevel = limits_.baseMipLevel;
+        aspect_index = encoder_->LowerBoundFromMask(limits_.aspectMask);
+        aspectMask = encoder_->AspectBit(aspect_index) & limits_.aspectMask;
+        offset.x = limits_offset_.x;
+        if (offset_y_index < static_cast<int32_t>(limits_extent_.height)) {
+            offset.y = offset_y_index;
+        } else {
+            // This is an "end" tombstone
+            offset.y = static_cast<int32_t>(limits_extent_.height);
+        }
+    }
+    void SeekOffsetX(int32_t offset_x_index) {
+        arrayLayer = limits_.baseArrayLayer;
+        mipLevel = limits_.baseMipLevel;
+        aspect_index = encoder_->LowerBoundFromMask(limits_.aspectMask);
+        aspectMask = encoder_->AspectBit(aspect_index) & limits_.aspectMask;
+        offset.x = offset_x_index;
+    }
+    void SeekAspect(uint32_t seek_index) {
+        arrayLayer = limits_.baseArrayLayer;
+        mipLevel = limits_.baseMipLevel;
+        aspect_index = seek_index;
+        // Seeking to bit outside of the limit will set a "empty" subresource
+        aspectMask = encoder_->AspectBit(aspect_index) & limits_.aspectMask;
+    }
+
+    void SeekMip(uint32_t mip_level) {
+        arrayLayer = limits_.baseArrayLayer;
+        mipLevel = mip_level;
+    }
+
+    // Next and and ++ functions are for iteration from a base with the bounds, this may be additionally
+    // controlled/updated by an owning generator (like RangeGenerator using Seek functions)
+    inline void NextOffsetY() { SeekOffsetY(++offset.y); }
+    inline void NextOffsetX() {
+        ++offset.x;
+        if (offset.x >= static_cast<int32_t>(limits_extent_.width)) {
+            NextOffsetY();
+        } else {
+            SeekOffsetX(offset.x);
+        }
+    }
+    inline void NextAspect() {
+        ++aspect_index;
+        if (aspect_index >= encoder_->Limits().aspect_index) {
+            NextOffsetX();
+        } else {
+            SeekAspect(encoder_->LowerBoundFromMask(limits_.aspectMask, aspect_index));
+        }
+    }
+    void NextMip() {
+        ++mipLevel;
+        if (mipLevel >= (limits_.baseMipLevel + limits_.levelCount)) {
+            NextAspect();
+        } else {
+            SeekMip(mipLevel);
+        }
+    }
+
+    BlitSubresourceGenerator& operator++() {
+        arrayLayer++;
+        if (arrayLayer >= (limits_.baseArrayLayer + limits_.layerCount)) {
+            NextMip();
+        }
+        return *this;
+    }
+
+    // General purpose and slow, when we have no other information to update the generator
+    void Seek(IndexType index) {
+        // skip forward past discontinuities
+        *static_cast<BlitSubresource* const>(this) = encoder_->Decode(index);
+    }
+
+    const VkImageSubresource& operator*() const { return *this; }
+    const VkImageSubresource* operator->() const { return this; }
+
+  private:
+    const BlitRangeEncoder* encoder_;
+    VkImageSubresourceRange limits_;
+    const VkOffset2D limits_offset_;
+    const VkExtent2D limits_extent_;
+};
+
+class BlitRangeGenerator {
+  public:
+    BlitRangeGenerator() : encoder_(nullptr), isr_pos_(), pos_(), aspect_base_() {}
+    bool operator!=(const BlitRangeGenerator& rhs) { return (pos_ != rhs.pos_) || (&encoder_ != &rhs.encoder_); }
+    BlitRangeGenerator(const BlitRangeEncoder& encoder);
+    BlitRangeGenerator(const BlitRangeEncoder& encoder, const VkImageSubresourceRange& subres_range, const VkOffset3D& offset,
+                       const VkExtent3D& extent);
+    inline const IndexRange& operator*() const { return pos_; }
+    inline const IndexRange* operator->() const { return &pos_; }
+    BlitSubresourceGenerator& GetBlitSubresourceGenerator() { return isr_pos_; }
+    BlitSubresource& GetBlitSubresource() { return isr_pos_; }
+    BlitRangeGenerator& operator++();
+
+  private:
+    const BlitRangeEncoder* encoder_;
+    BlitSubresourceGenerator isr_pos_;
+    IndexRange pos_;
+    IndexRange aspect_base_;
+    uint32_t mip_count_ = 0;
+    uint32_t mip_index_ = 0;
+    uint32_t aspect_count_ = 0;
+    uint32_t aspect_index_ = 0;
+    VkOffset2D offset_count_ = {};
+    VkOffset2D offset_index_ = {};
+};
+
 // Designed for use with RangeMap of MappedType
 template <typename Map>
 class ConstMapView {
