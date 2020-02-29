@@ -45,6 +45,7 @@ const static VkImageLayout kInvalidLayout = VK_IMAGE_LAYOUT_MAX_ENUM;
 using IndexType = subresource_adapter::IndexType;
 using IndexRange = sparse_container::range<IndexType>;
 using Encoder = subresource_adapter::RangeEncoder;
+using BlitEncoder = subresource_adapter::BlitRangeEncoder;
 using NoSplit = sparse_container::insert_range_no_split_bounds;
 using RangeGenerator = subresource_adapter::RangeGenerator;
 using SubresourceGenerator = subresource_adapter::SubresourceGenerator;

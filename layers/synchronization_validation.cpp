@@ -126,7 +126,9 @@ HazardResult DetectHazard(const IMAGE_STATE &image, const ResourceAccessRangeMap
     // TODO: replace the encoder/generator with offset3D/extent3D aware versions
     VkImageSubresourceRange subresource_range = {subresource.aspectMask, subresource.mipLevel, 1, subresource.baseArrayLayer,
                                                  subresource.layerCount};
-    subresource_adapter::RangeGenerator range_gen(image.range_encoder, subresource_range);
+    VkExtent3D subresource_extent = GetImageSubresourceExtent(&image, &subresource);
+    image_layout_map::BlitEncoder encoder(image.full_range, subresource_extent);
+    subresource_adapter::BlitRangeGenerator range_gen(encoder, subresource_range, offset, extent);
     for (; range_gen->non_empty(); ++range_gen) {
         HazardResult hazard = DetectHazard(accesses, current_usage, *range_gen);
         if (hazard.hazard) return hazard;
@@ -313,7 +315,9 @@ void UpdateAccessState(const IMAGE_STATE &image, ResourceAccessRangeMap *accesse
     // TODO: replace the encoder/generator with offset3D aware versions
     VkImageSubresourceRange subresource_range = {subresource.aspectMask, subresource.mipLevel, 1, subresource.baseArrayLayer,
                                                  subresource.layerCount};
-    subresource_adapter::RangeGenerator range_gen(image.range_encoder, subresource_range);
+    VkExtent3D subresource_extent = GetImageSubresourceExtent(&image, &subresource);
+    image_layout_map::BlitEncoder encoder(image.full_range, subresource_extent);
+    subresource_adapter::BlitRangeGenerator range_gen(encoder, subresource_range, offset, extent);
     for (; range_gen->non_empty(); ++range_gen) {
         UpdateAccessState(accesses, current_usage, *range_gen, tag);
     }
@@ -601,6 +605,7 @@ bool SyncValidator::PreCallValidateCmdCopyImage(VkCommandBuffer commandBuffer, V
                                     report_data->FormatHandle(dstImage).c_str(), region);
                 }
             }
+            if (skip) break;
         }
     }
     return skip;
