@@ -589,8 +589,11 @@ bool SyncValidator::PreCallValidateCmdCopyImage(VkCommandBuffer commandBuffer, V
                 }
             }
             if (dst_access) {
+                VkExtent3D dst_copy_extent =
+                    GetAdjustedDestImageExtent(src_image->createInfo.format, dst_image->createInfo.format, copy_region.extent);
+
                 auto hazard = DetectHazard(*dst_image, *dst_access, SYNC_TRANSFER_TRANSFER_WRITE, copy_region.dstSubresource,
-                                           copy_region.dstOffset, copy_region.extent);
+                                           copy_region.dstOffset, dst_copy_extent);
                 if (hazard.hazard) {
                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
                                     HandleToUint64(dstImage), string_SyncHazardVUID(hazard.hazard),
@@ -620,8 +623,11 @@ void SyncValidator::PreCallRecordCmdCopyImage(VkCommandBuffer commandBuffer, VkI
                               copy_region.srcOffset, copy_region.extent, tag);
         }
         if (dst_access) {
+            VkExtent3D dst_copy_extent =
+                GetAdjustedDestImageExtent(src_image->createInfo.format, dst_image->createInfo.format, copy_region.extent);
+
             UpdateAccessState(*dst_image, dst_access, SYNC_TRANSFER_TRANSFER_WRITE, copy_region.dstSubresource,
-                              copy_region.dstOffset, copy_region.extent, tag);
+                              copy_region.dstOffset, dst_copy_extent, tag);
         }
     }
 }
