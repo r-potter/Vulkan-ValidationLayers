@@ -1876,6 +1876,7 @@ TEST_F(VkPositiveLayerTest, UncompressedToCompressedImageCopy) {
 
     // And from compressed to uncompressed
     copy_region.extent = {40, 40, 1};  // Dimensions in (compressed) texels
+    // [ SYNC-HAZARD-READ_AFTER_WRITE ] Object: 0x6dc7200000000005 (Type = 9) | Hazard READ_AFTER_WRITE for srcImage VkImage 0x6dc7200000000005[], region 0
     vk::CmdCopyImage(m_commandBuffer->handle(), comp_10x10b_40x40t_image.handle(), VK_IMAGE_LAYOUT_GENERAL,
                      uncomp_10x10t_image.handle(), VK_IMAGE_LAYOUT_GENERAL, 1, &copy_region);
 

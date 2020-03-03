@@ -1363,29 +1363,34 @@ TEST_F(VkLayerTest, CompressedImageMipCopyTests) {
     region.imageExtent = {32, 32, 1};
     region.imageSubresource.mipLevel = 0;
     vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_1024.handle(), 1, &region);
+    // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x983e60000000003 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x983e60000000003[], region 0
     vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_1024.handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 
     // Mip 2 should fit in 64b buffer - 64 texels @ 1b each
     region.imageExtent = {8, 8, 1};
     region.imageSubresource.mipLevel = 2;
     vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_64.handle(), 1, &region);
+    // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x983e60000000003 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x983e60000000003[], region 0
     vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_64.handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 
     // Mip 3 should fit in 16b buffer - 16 texels @ 1b each
     region.imageExtent = {4, 4, 1};
     region.imageSubresource.mipLevel = 3;
     vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_16.handle(), 1, &region);
+    // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x983e60000000003 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x983e60000000003[], region 0
     vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_16.handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 
     // Mip 4&5 should fit in 16b buffer with no complaint - 4 & 1 texels @ 1b each
     region.imageExtent = {2, 2, 1};
     region.imageSubresource.mipLevel = 4;
     vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_16.handle(), 1, &region);
+    // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x983e60000000003 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x983e60000000003[], region 0
     vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_16.handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 
     region.imageExtent = {1, 1, 1};
     region.imageSubresource.mipLevel = 5;
     vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_16.handle(), 1, &region);
+    // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x983e60000000003 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x983e60000000003[], region 0
     vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_16.handle(), image.handle(), VK_IMAGE_LAYOUT_GENERAL, 1, &region);
     m_errorMonitor->VerifyNotFound();
 
@@ -1455,6 +1460,7 @@ TEST_F(VkLayerTest, CompressedImageMipCopyTests) {
     m_errorMonitor->ExpectSuccess();
     vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), odd_image.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_16.handle(), 1,
                              &region);
+    // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x3ba5830000000006 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x3ba5830000000006[], region 0
     vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_16.handle(), odd_image.handle(), VK_IMAGE_LAYOUT_GENERAL, 1,
                              &region);
     m_errorMonitor->VerifyNotFound();
@@ -1637,12 +1643,14 @@ TEST_F(VkLayerTest, ImageBufferCopyTests) {
         m_errorMonitor->ExpectSuccess();
         vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), image_16k.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_16k.handle(), 1,
                                  &region);
+        // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x3ba5830000000006 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x3ba5830000000006[], region 0
         vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_16k.handle(), image_16k.handle(), VK_IMAGE_LAYOUT_GENERAL, 1,
                                  &region);
         region.imageOffset.x = 16;  // 16k copy, offset requires larger image
         vk::CmdCopyImageToBuffer(m_commandBuffer->handle(), image_64k.handle(), VK_IMAGE_LAYOUT_GENERAL, buffer_16k.handle(), 1,
                                  &region);
         region.imageExtent.height = 78;  // > 16k copy requires larger buffer & image
+        // [ SYNC-HAZARD-WRITE_AFTER_READ ] Object: 0x983e60000000003 (Type = 9) | Hazard WRITE_AFTER_READ for dstImage VkImage 0x983e60000000003[], region 0
         vk::CmdCopyBufferToImage(m_commandBuffer->handle(), buffer_64k.handle(), image_64k.handle(), VK_IMAGE_LAYOUT_GENERAL, 1,
                                  &region);
         region.imageOffset.x = 0;
