@@ -96,7 +96,7 @@ class ResourceAccessState : public SyncStageAccess {
     // With reads, each must be "safe" relative to it's prior write, so we need only
     // save the most recent write operation (as anything *transitively* unsafe would arleady
     // be included
-    SyncStageAccessFlags write_barriers;  // union of applicable barrier masks since last write
+    SyncStageAccessFlags write_barriers;          // union of applicable barrier masks since last write
     VkPipelineStageFlags write_dependency_chain;  // intiially zero, but accumulating the dstStages of barriers if they chain.
     uint32_t last_read_count;
     VkPipelineStageFlags last_read_stages;
@@ -236,4 +236,25 @@ class SyncValidator : public ValidationStateTracker, public SyncStageAccess {
                                          uint32_t memoryBarrierCount, const VkMemoryBarrier *pMemoryBarriers,
                                          uint32_t bufferMemoryBarrierCount, const VkBufferMemoryBarrier *pBufferMemoryBarriers,
                                          uint32_t imageMemoryBarrierCount, const VkImageMemoryBarrier *pImageMemoryBarriers);
+
+    bool PreCallValidateCmdCopyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage,
+                                             VkImageLayout dstImageLayout, uint32_t regionCount,
+                                             const VkBufferImageCopy *pRegions) const;
+
+    void PreCallRecordCmdCopyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage,
+                                           VkImageLayout dstImageLayout, uint32_t regionCount, const VkBufferImageCopy *pRegions);
+
+    bool PreCallValidateCmdCopyImageToBuffer(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                             VkBuffer dstBuffer, uint32_t regionCount, const VkBufferImageCopy *pRegions) const;
+
+    void PreCallRecordCmdCopyImageToBuffer(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                           VkBuffer dstBuffer, uint32_t regionCount, const VkBufferImageCopy *pRegions);
+
+    bool PreCallValidateCmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                     VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount,
+                                     const VkImageBlit *pRegions, VkFilter filter) const;
+
+    void PreCallRecordCmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage,
+                                   VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageBlit *pRegions,
+                                   VkFilter filter);
 };

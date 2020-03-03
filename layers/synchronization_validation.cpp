@@ -720,3 +720,205 @@ void SyncValidator::PostCallRecordCreateDevice(VkPhysicalDevice gpu, const VkDev
     sync_device_state->SetCommandBufferResetCallback(
         [sync_device_state](VkCommandBuffer command_buffer) -> void { sync_device_state->ResetCommandBuffer(command_buffer); });
 }
+
+bool SyncValidator::PreCallValidateCmdCopyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage,
+                                                        VkImageLayout dstImageLayout, uint32_t regionCount,
+                                                        const VkBufferImageCopy *pRegions) const {
+    bool skip = false;
+    auto *tracker = GetAccessTracker(commandBuffer);
+    if (tracker) {
+        const auto *src_buffer = Get<BUFFER_STATE>(srcBuffer);
+        const auto src_access = (src_buffer && !src_buffer->sparse) ? tracker->GetMemoryAccesses(src_buffer->binding.mem) : nullptr;
+        const auto *dst_image = Get<IMAGE_STATE>(dstImage);
+        const auto dst_access = tracker->GetImageAccesses(dstImage);
+
+        for (uint32_t region = 0; region < regionCount; region++) {
+            const auto &copy_region = pRegions[region];
+            if (src_access) {
+                ResourceAccessRange src_range = MakeMemoryAccessRange(*src_buffer, copy_region.bufferOffset,
+                                                                      copy_region.bufferRowLength * copy_region.bufferImageHeight);
+                auto hazard = DetectHazard(*src_access, SYNC_TRANSFER_TRANSFER_READ, src_range);
+                if (hazard.hazard) {
+                    // TODO -- add tag information to log msg when useful.
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
+                                    HandleToUint64(srcBuffer), string_SyncHazardVUID(hazard.hazard),
+                                    "Hazard %s for srcBuffer %s, region %" PRIu32, string_SyncHazard(hazard.hazard),
+                                    report_data->FormatHandle(srcBuffer).c_str(), region);
+                }
+            }
+            if (dst_access) {
+                auto hazard = DetectHazard(*dst_image, *dst_access, SYNC_TRANSFER_TRANSFER_WRITE, copy_region.imageSubresource,
+                                           copy_region.imageOffset, copy_region.imageExtent);
+                if (hazard.hazard) {
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
+                                    HandleToUint64(dstImage), string_SyncHazardVUID(hazard.hazard),
+                                    "Hazard %s for dstImage %s, region %" PRIu32, string_SyncHazard(hazard.hazard),
+                                    report_data->FormatHandle(dstImage).c_str(), region);
+                }
+            }
+            if (skip) break;
+        }
+    }
+    return skip;
+}
+
+void SyncValidator::PreCallRecordCmdCopyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage,
+                                                      VkImageLayout dstImageLayout, uint32_t regionCount,
+                                                      const VkBufferImageCopy *pRegions) {
+    auto *tracker = GetAccessTracker(commandBuffer);
+    assert(tracker);
+    const auto *src_buffer = Get<BUFFER_STATE>(srcBuffer);
+    const auto src_access = (src_buffer && !src_buffer->sparse) ? tracker->GetMemoryAccesses(src_buffer->binding.mem) : nullptr;
+    auto *dst_image = Get<IMAGE_STATE>(dstImage);
+    auto dst_access = tracker->GetImageAccesses(dstImage);
+
+    for (uint32_t region = 0; region < regionCount; region++) {
+        const auto &copy_region = pRegions[region];
+        if (src_access) {
+            ResourceAccessRange src_range = MakeMemoryAccessRange(*src_buffer, copy_region.bufferOffset,
+                                                                  copy_region.bufferRowLength * copy_region.bufferImageHeight);
+            UpdateAccessState(src_access, SYNC_TRANSFER_TRANSFER_READ, src_range, tag);
+        }
+        if (dst_access) {
+            UpdateAccessState(*dst_image, dst_access, SYNC_TRANSFER_TRANSFER_WRITE, copy_region.imageSubresource,
+                              copy_region.imageOffset, copy_region.imageExtent, tag);
+        }
+    }
+}
+
+bool SyncValidator::PreCallValidateCmdCopyImageToBuffer(VkCommandBuffer commandBuffer, VkImage srcImage,
+                                                        VkImageLayout srcImageLayout, VkBuffer dstBuffer, uint32_t regionCount,
+                                                        const VkBufferImageCopy *pRegions) const {
+    bool skip = false;
+    auto *tracker = GetAccessTracker(commandBuffer);
+    if (tracker) {
+        const auto *src_image = Get<IMAGE_STATE>(srcImage);
+        const auto src_access = tracker->GetImageAccesses(srcImage);
+        const auto *dst_buffer = Get<BUFFER_STATE>(dstBuffer);
+        const auto dst_access = (dst_buffer && !dst_buffer->sparse) ? tracker->GetMemoryAccesses(dst_buffer->binding.mem) : nullptr;
+
+        for (uint32_t region = 0; region < regionCount; region++) {
+            const auto &copy_region = pRegions[region];
+            if (src_access) {
+                auto hazard = DetectHazard(*src_image, *src_access, SYNC_TRANSFER_TRANSFER_READ, copy_region.imageSubresource,
+                                           copy_region.imageOffset, copy_region.imageExtent);
+                if (hazard.hazard) {
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
+                                    HandleToUint64(srcImage), string_SyncHazardVUID(hazard.hazard),
+                                    "Hazard %s for srcImage %s, region %" PRIu32, string_SyncHazard(hazard.hazard),
+                                    report_data->FormatHandle(srcImage).c_str(), region);
+                }
+            }
+            if (dst_access) {
+                ResourceAccessRange dst_range = MakeMemoryAccessRange(*dst_buffer, copy_region.bufferOffset,
+                                                                      copy_region.bufferRowLength * copy_region.bufferImageHeight);
+                auto hazard = DetectHazard(*dst_access, SYNC_TRANSFER_TRANSFER_WRITE, dst_range);
+                if (hazard.hazard) {
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
+                                    HandleToUint64(dstBuffer), string_SyncHazardVUID(hazard.hazard),
+                                    "Hazard %s for dstBuffer %s, region %" PRIu32, string_SyncHazard(hazard.hazard),
+                                    report_data->FormatHandle(dstBuffer).c_str(), region);
+                }
+            }
+            if (skip) break;
+        }
+    }
+    return skip;
+}
+
+void SyncValidator::PreCallRecordCmdCopyImageToBuffer(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                                      VkBuffer dstBuffer, uint32_t regionCount, const VkBufferImageCopy *pRegions) {
+    auto *tracker = GetAccessTracker(commandBuffer);
+    assert(tracker);
+    auto *src_image = Get<IMAGE_STATE>(srcImage);
+    auto src_access = tracker->GetImageAccesses(srcImage);
+    const auto *dst_buffer = Get<BUFFER_STATE>(dstBuffer);
+    const auto dst_access = (dst_buffer && !dst_buffer->sparse) ? tracker->GetMemoryAccesses(dst_buffer->binding.mem) : nullptr;
+
+    for (uint32_t region = 0; region < regionCount; region++) {
+        const auto &copy_region = pRegions[region];
+        if (src_access) {
+            UpdateAccessState(*src_image, src_access, SYNC_TRANSFER_TRANSFER_READ, copy_region.imageSubresource,
+                              copy_region.imageOffset, copy_region.imageExtent, tag);
+        }
+        if (dst_access) {
+            ResourceAccessRange dst_range = MakeMemoryAccessRange(*dst_buffer, copy_region.bufferOffset,
+                                                                  copy_region.bufferRowLength * copy_region.bufferImageHeight);
+            UpdateAccessState(dst_access, SYNC_TRANSFER_TRANSFER_WRITE, dst_range, tag);
+        }
+    }
+}
+
+bool SyncValidator::PreCallValidateCmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                                VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount,
+                                                const VkImageBlit *pRegions, VkFilter filter) const {
+    bool skip = false;
+    auto *tracker = GetAccessTracker(commandBuffer);
+    if (tracker) {
+        const auto *src_image = Get<IMAGE_STATE>(srcImage);
+        const auto src_access = tracker->GetImageAccesses(srcImage);
+        const auto *dst_image = Get<IMAGE_STATE>(dstImage);
+        const auto dst_access = tracker->GetImageAccesses(dstImage);
+
+        for (uint32_t region = 0; region < regionCount; region++) {
+            const auto &blit_region = pRegions[region];
+            if (src_access) {
+                VkExtent3D extent = {static_cast<uint32_t>(blit_region.srcOffsets[1].x - blit_region.srcOffsets[0].x),
+                                     static_cast<uint32_t>(blit_region.srcOffsets[1].y - blit_region.srcOffsets[0].y),
+                                     static_cast<uint32_t>(blit_region.srcOffsets[1].z - blit_region.srcOffsets[0].z)};
+                auto hazard = DetectHazard(*src_image, *src_access, SYNC_TRANSFER_TRANSFER_READ, blit_region.srcSubresource,
+                                           blit_region.srcOffsets[0], extent);
+                if (hazard.hazard) {
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
+                                    HandleToUint64(srcImage), string_SyncHazardVUID(hazard.hazard),
+                                    "Hazard %s for srcImage %s, region %" PRIu32, string_SyncHazard(hazard.hazard),
+                                    report_data->FormatHandle(srcImage).c_str(), region);
+                }
+            }
+            if (dst_access) {
+                VkExtent3D extent = {static_cast<uint32_t>(blit_region.dstOffsets[1].x - blit_region.dstOffsets[0].x),
+                                     static_cast<uint32_t>(blit_region.dstOffsets[1].y - blit_region.dstOffsets[0].y),
+                                     static_cast<uint32_t>(blit_region.dstOffsets[1].z - blit_region.dstOffsets[0].z)};
+                auto hazard = DetectHazard(*dst_image, *dst_access, SYNC_TRANSFER_TRANSFER_WRITE, blit_region.dstSubresource,
+                                           blit_region.dstOffsets[0], extent);
+                if (hazard.hazard) {
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
+                                    HandleToUint64(dstImage), string_SyncHazardVUID(hazard.hazard),
+                                    "Hazard %s for dstImage %s, region %" PRIu32, string_SyncHazard(hazard.hazard),
+                                    report_data->FormatHandle(dstImage).c_str(), region);
+                }
+            }
+            if (skip) break;
+        }
+    }
+    return skip;
+}
+
+void SyncValidator::PreCallRecordCmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                              VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount,
+                                              const VkImageBlit *pRegions, VkFilter filter) {
+    auto *tracker = GetAccessTracker(commandBuffer);
+    assert(tracker);
+    auto *src_image = Get<IMAGE_STATE>(srcImage);
+    auto src_access = tracker->GetImageAccesses(srcImage);
+    auto *dst_image = Get<IMAGE_STATE>(dstImage);
+    auto dst_access = tracker->GetImageAccesses(dstImage);
+
+    for (uint32_t region = 0; region < regionCount; region++) {
+        const auto &blit_region = pRegions[region];
+        if (src_access) {
+            VkExtent3D extent = {static_cast<uint32_t>(blit_region.srcOffsets[1].x - blit_region.srcOffsets[0].x),
+                                 static_cast<uint32_t>(blit_region.srcOffsets[1].y - blit_region.srcOffsets[0].y),
+                                 static_cast<uint32_t>(blit_region.srcOffsets[1].z - blit_region.srcOffsets[0].z)};
+            UpdateAccessState(*src_image, src_access, SYNC_TRANSFER_TRANSFER_READ, blit_region.srcSubresource,
+                              blit_region.srcOffsets[0], extent, tag);
+        }
+        if (dst_access) {
+            VkExtent3D extent = {static_cast<uint32_t>(blit_region.dstOffsets[1].x - blit_region.dstOffsets[0].x),
+                                 static_cast<uint32_t>(blit_region.dstOffsets[1].y - blit_region.dstOffsets[0].y),
+                                 static_cast<uint32_t>(blit_region.dstOffsets[1].z - blit_region.dstOffsets[0].z)};
+            UpdateAccessState(*dst_image, dst_access, SYNC_TRANSFER_TRANSFER_WRITE, blit_region.dstSubresource,
+                              blit_region.dstOffsets[0], extent, tag);
+        }
+    }
+}
