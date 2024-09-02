@@ -6560,3 +6560,136 @@ TEST_F(NegativeSyncVal, ResourceHandleIndexStability) {
 
     m_default_queue->Wait();
 }
+
+TEST_F(NegativeSyncVal, EventCmdsInvalidDeviceMask) {
+    TEST_DESCRIPTION("Invalid device mask when using vkCmd*Event calls.");
+    SetTargetApiVersion(VK_API_VERSION_1_1);
+    RETURN_IF_SKIP(InitSyncVal());
+    InitRenderTarget();
+
+    VkEventCreateInfo event_ci = vku::InitStructHelper{};
+
+    vkt::Event event;
+    event.init(*m_device, event_ci);
+
+    uint32_t phys_dev_count = 0;
+    vk::EnumeratePhysicalDevices(instance_, &phys_dev_count, nullptr);
+
+    uint32_t phys_dev_mask = (1u << phys_dev_count) - 1;
+    // Enable more physical devices than available
+    uint32_t invalid_device_mask = (phys_dev_mask << 2) - 1;
+
+    VkDeviceGroupCommandBufferBeginInfo dev_grp_cmd_buf_info = vku::InitStructHelper{};
+    dev_grp_cmd_buf_info.deviceMask = phys_dev_mask;
+
+    VkCommandBufferBeginInfo cmd_buf_info = vku::InitStructHelper(&dev_grp_cmd_buf_info);
+
+    vk::BeginCommandBuffer(m_command_buffer.handle(), &cmd_buf_info);
+
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00108");
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00110");
+    vk::CmdSetDeviceMask(m_command_buffer.handle(), invalid_device_mask);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdSetEvent-commandBuffer-01152");
+    vk::CmdSetEvent(m_command_buffer.handle(), event.handle(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdWaitEvents-commandBuffer-01167");
+    vk::CmdWaitEvents(m_command_buffer.handle(), 1, &event.handle(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, nullptr, 0, nullptr, 0, nullptr);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdResetEvent-commandBuffer-01157");
+    vk::CmdResetEvent(m_command_buffer.handle(), event.handle(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+
+    vk::EndCommandBuffer(m_command_buffer.handle());
+
+    m_errorMonitor->VerifyFound();
+
+    m_command_buffer.reset();
+
+    vk::BeginCommandBuffer(m_command_buffer.handle(), &cmd_buf_info);
+
+    VkDeviceGroupRenderPassBeginInfo dev_grp_render_pass_begin_info = vku::InitStructHelper{};
+    dev_grp_render_pass_begin_info.deviceMask = phys_dev_mask;
+    m_renderPassBeginInfo.pNext = &dev_grp_render_pass_begin_info;
+
+    vk::CmdBeginRenderPass(m_command_buffer.handle(), &m_renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00108");
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00110");
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00111");
+    vk::CmdSetDeviceMask(m_command_buffer.handle(), invalid_device_mask);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdWaitEvents-commandBuffer-01167");
+    vk::CmdWaitEvents(m_command_buffer.handle(), 1, &event.handle(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, nullptr, 0, nullptr, 0, nullptr);
+    vk::CmdEndRenderPass(m_command_buffer.handle());
+    vk::EndCommandBuffer(m_command_buffer.handle());
+
+    m_errorMonitor->VerifyFound();
+}
+
+TEST_F(NegativeSyncVal, EventCmds2InvalidDeviceMask) {
+    TEST_DESCRIPTION("Invalid device mask when using vkCmd*Event2 calls.");
+    SetTargetApiVersion(VK_API_VERSION_1_3);
+    AddRequiredFeature(vkt::Feature::synchronization2);
+    RETURN_IF_SKIP(InitSyncVal());
+    InitRenderTarget();
+
+    VkEventCreateInfo event_ci = vku::InitStructHelper{};
+
+    vkt::Event event;
+    event.init(*m_device, event_ci);
+
+    uint32_t phys_dev_count = 0;
+    vk::EnumeratePhysicalDevices(instance_, &phys_dev_count, nullptr);
+    uint32_t phys_dev_mask = (1u << phys_dev_count) - 1;
+    // Enable more physical devices than available
+    uint32_t invalid_phys_dev_mask = (phys_dev_mask << 2) - 1;
+
+    VkDeviceGroupCommandBufferBeginInfo dev_grp_cmd_buf_info = vku::InitStructHelper{};
+    dev_grp_cmd_buf_info.deviceMask = phys_dev_mask;
+
+    VkDependencyInfo dependency_info = vku::InitStructHelper{};
+    VkCommandBufferBeginInfo cmd_buf_info = vku::InitStructHelper(&dev_grp_cmd_buf_info);
+
+    vk::BeginCommandBuffer(m_command_buffer.handle(), &cmd_buf_info);
+
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00108");
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00110");
+    vk::CmdSetDeviceMask(m_command_buffer.handle(), invalid_phys_dev_mask);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdSetEvent2-commandBuffer-03826");
+    vk::CmdSetEvent2(m_command_buffer.handle(), event.handle(), &dependency_info);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdWaitEvents2-commandBuffer-03846");
+    vk::CmdWaitEvents2(m_command_buffer.handle(), 1, &event.handle(), &dependency_info);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdResetEvent2-commandBuffer-03833");
+    vk::CmdResetEvent2(m_command_buffer.handle(), event.handle(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+
+    vk::EndCommandBuffer(m_command_buffer.handle());
+
+    m_errorMonitor->VerifyFound();
+
+    m_command_buffer.reset();
+
+    vk::BeginCommandBuffer(m_command_buffer.handle(), &cmd_buf_info);
+
+    VkDeviceGroupRenderPassBeginInfo dev_grp_render_pass_begin_info = vku::InitStructHelper{};
+    dev_grp_render_pass_begin_info.deviceMask = phys_dev_mask;
+    m_renderPassBeginInfo.pNext = &dev_grp_render_pass_begin_info;
+
+    vk::CmdBeginRenderPass(m_command_buffer.handle(), &m_renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00108");
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00110");
+    m_errorMonitor->SetAllowedFailureMsg("VUID-vkCmdSetDeviceMask-deviceMask-00111");
+    vk::CmdSetDeviceMask(m_command_buffer.handle(), invalid_phys_dev_mask);
+
+    m_errorMonitor->SetDesiredError("VUID-vkCmdWaitEvents2-commandBuffer-03846");
+    vk::CmdWaitEvents2(m_command_buffer.handle(), 1, &event.handle(), &dependency_info);
+    vk::CmdEndRenderPass(m_command_buffer.handle());
+    vk::EndCommandBuffer(m_command_buffer.handle());
+
+    m_errorMonitor->VerifyFound();
+}
